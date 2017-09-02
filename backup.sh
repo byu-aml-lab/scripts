@@ -1,0 +1,137 @@
+#!/bin/bash
+# Note that when you make a new disk, you need to run fdisk and create a
+# single partition of type 83 (Linux).  Then do the following:
+# mkfs.ext4 -i 65536 -m 0 -L AML_BACKUP /dev/sdX1
+# tune2fs -c 0 /dev/sdX1
+#
+# For btrfs, do:
+#   parted /dev/sdX:
+#     mklabel gpt
+#     mkpart btrfs 0% 100%
+#     name 1 AML_BACKUP
+#   mkfs.btrfs -L AML_BACKUP /dev/sdX1
+#
+# Note that to copy from an old backup disk to a new one, you must do the
+# following to preserve hard links (which is very important):
+# rsync -aH /mnt/backup/ /mnt/backup2
+
+
+# Fail on undefined variables.
+set -u
+
+# Fail on failure
+set -e
+
+mountpoint="/mnt/backup"
+device="LABEL=AML_BACKUP"
+curdate=`date +%Y-%m-%d`
+backupdest="$mountpoint/$curdate"
+email="aml-root@cs.byu.edu"
+logfile="/var/log/backups/$curdate"
+home="/users/home"
+
+mkdir -p $(dirname $logfile)
+
+# exclusion:
+# DON'T PUT SPACES ANYWHERE HERE!  Also, make sure that paths start with a
+# slash (/), especially if they're short names--otherwise it will exclude that
+# name _anywhere_ in the tree.
+exclude=(--exclude="**/home/kseppi/ipf/code" \
+         --exclude="**/home/jlc/Windows?Documents" \
+         --exclude="**/home/*/.config/google-chrome/**" \
+        )
+
+# Renice myself and all future children
+renice +19 $$ 2>&1 | tee -a $logfile
+
+# have echo write to the logfile as well as output to screen
+function echo(){ builtin echo $@ 2>&1 | tee -a $logfile; }
+
+# Mount the backup drive
+echo
+echo
+echo "Beginning backup process at $(date)"
+echo "Mounting"
+# (what about failure):
+#mount $device $mountpoint || echo "Already mounted."
+if ! mount $device $mountpoint ; then
+    if ! mount -t btrfs $device $mountpoint; then
+        echo "Mount failed"
+        exit 1
+    fi
+fi
+
+# Find the previous backup.
+lastdest=`ls -d $mountpoint/????-??-?? |grep -v '\.' |grep -v $curdate |tail -n 1`
+echo "Backing up to $mountpoint with date $curdate"
+echo "Previous backup: $lastdest"
+# only link to previous backup if a previous backup exists
+rsync_link_options=""
+if [ -d "$lastdest" ]; then
+    rsync_link_options="--delete --link-dest=$lastdest --ignore-existing"
+else
+    echo "*No previous directory found. Backing up from scratch. If this is not a new backup disk, this indicates an error.*"
+fi
+
+# Create location
+mkdir -p $backupdest 2>&1 | tee -a $logfile
+
+# check disk status before backup
+dfbefore="$(df -h)"
+
+# Backup AML Stuff (git repositories, live backup, web pages, etc.)
+echo "Rsyncing."
+
+# Note that we do --delete for when a backup is redone on the same day.
+if rsync -av --bwlimit=300m $rsync_link_options \
+    ${exclude[@]} $home $backupdest 2>&1 | tee -a $logfile
+then
+    echo
+    echo "Rsync succeeded."
+else
+    echo "Rsync failed.  This could be because of the common error:"
+    echo '"some files vanished before they could be transferred"'
+fi
+
+# Note: the above rsync will probably put an error into $? (and thus
+# killing the script) because the following is common:
+#
+# rsync warning: some files vanished before they could be transferred (code
+# 24) at main.c(892)
+
+# state of disks after backup
+dfafter=$(df -h)
+
+# Unmount the backup drive
+echo "Umounting"
+umount $mountpoint || echo "Couldn't unmount."
+
+# create a short version of the log (the full log is too big ~1G)
+head -n30 $logfile > $logfile-short
+echo ". . ." >> $logfile-short
+echo "omitted many lines" >> $logfile-short
+echo ". . ." >> $logfile-short
+tail -n30 $logfile >> $logfile-short
+
+# Email notification
+echo "Sending out backup notification e-mail"
+mail -s "AML Backup Finished: $(date)" $email << END
+The backup process for AML is now complete.
+
+Here's the state of the file server drives (df -h):
+===========================================
+Before the latest backup
+$dfbefore
+
+After the latest backup:
+$dfafter
+
+Here is what was written to the backup log.
+(Note: ignore the message warning that some files
+vanished before they could be transferred.)
+===========================================
+$(cat $logfile-short)
+END
+
+# get rid of the huge log file
+rm $logfile
