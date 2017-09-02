@@ -113,25 +113,23 @@ echo "omitted many lines" >> $logfile-short
 echo ". . ." >> $logfile-short
 tail -n30 $logfile >> $logfile-short
 
-# Email notification
-echo "Sending out backup notification e-mail"
-mail -s "AML Backup Finished: $(date)" $email << END
-The backup process for AML is now complete.
-
-Here's the state of the file server drives (df -h):
-===========================================
-Before the latest backup
-$dfbefore
-
-After the latest backup:
-$dfafter
-
-Here is what was written to the backup log.
-(Note: ignore the message warning that some files
-vanished before they could be transferred.)
-===========================================
-$(cat $logfile-short)
-END
+# print out finish
+echo "AML Backup Finished"
+echo "The backup process for AML is now complete."
+echo
+echo "Here's the state of the file server drives (df -h):"
+echo "==========================================="
+echo "Before the latest backup"
+echo "$dfbefore"
+echo
+echo "After the latest backup:"
+echo "$dfafter"
+echo
+echo "Here is what was written to the backup log."
+echo "(Note: ignore the message warning that some files"
+echo "vanished before they could be transferred.)"
+echo "==========================================="
+echo "$(cat $logfile-short)"
 
 # get rid of the huge log file
 rm $logfile
