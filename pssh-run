@@ -1,0 +1,47 @@
+#!/usr/bin/env python3
+
+"""Runs pssh with options intended for long running experiments on AML"""
+
+import argparse
+import os
+import subprocess
+import sys
+
+parser = argparse.ArgumentParser(usage='pssh-run [-h] [-h HOST] [-o] -n NAME command',
+                                 add_help=False)
+parser.description = 'An easier way to run AML experiments with pssh'
+parser.add_argument('--help', action='help', help='Display this help message')
+parser.add_argument('-h', '--host',
+                    help="Host file to use. May send multiple filenames separated by ';'. Defaults to the potatoes.")
+parser.add_argument('-o', '--overwrite', action='store_true',
+                    help='Allow existing scratch data to be overwritten instead of failing if the named scratch already exists.')
+parser.add_argument('-n', '--name', required=True,
+                    help="Name of the job. Output will be put in the users's scratch under this name.")
+parser.add_argument('command', nargs=argparse.REMAINDER,
+                    help='Command to be executed on remote hosts')
+args = parser.parse_args()
+
+if not args.command:
+    parser.print_usage(file=sys.stderr)
+    print('\nNo command not specified.', file=sys.stderr)
+    exit(1)
+
+if not args.host:
+    args.host = os.path.join(os.path.dirname(__file__), 'hosts/potatoes')
+basedir = os.path.join('/users/scratch/', os.environ['USER'], args.name)
+
+if os.path.exists(basedir):
+    parser.print_usage(file=sys.stderr)
+    print('\nDirectory ' + basedir + ' already exists. Remove it or use -o to allow it to be overwritten.', file=sys.stderr)
+    exit(1)
+
+cmd = ['pssh']
+for host in args.host.split(';'):
+    cmd.append('-h')
+    cmd.append(host)
+cmd += ['-o', os.path.join(basedir, 'stdout')]
+cmd += ['-e', os.path.join(basedir, 'stderr')]
+cmd += ['-t', '0']
+cmd += args.command
+
+subprocess.call(cmd)
