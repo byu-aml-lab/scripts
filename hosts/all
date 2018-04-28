@@ -2,7 +2,7 @@ perplexity
 roc
 recall
 roi
-#bleu
+bleu
 muse
 0potato
 1potato
@@ -27,7 +27,7 @@ muse
 20potato
 21potato
 22potato
-#23potato
+23potato
 24potato
 0yam
 1yam
